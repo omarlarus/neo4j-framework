@@ -16,25 +16,24 @@
 
 package com.graphaware.tx.executor.batch;
 
-import com.graphaware.test.data.CypherPopulator;
-import com.graphaware.test.data.DatabasePopulator;
-import com.graphaware.test.integration.DatabaseIntegrationTest;
-import com.graphaware.test.integration.EmbeddedDatabaseIntegrationTest;
-import com.graphaware.tx.executor.input.TransactionalInput;
-import com.graphaware.tx.executor.single.TransactionCallback;
-import org.junit.Test;
-import org.neo4j.graphdb.Label;
-import org.neo4j.graphdb.GraphDatabaseService;
-import org.neo4j.graphdb.Node;
-import org.neo4j.helpers.collection.Iterables;
-import org.neo4j.helpers.collection.Iterators;
-import org.neo4j.kernel.impl.transaction.TransactionCounters;
-import org.neo4j.kernel.internal.GraphDatabaseAPI;
+import static org.junit.Assert.assertEquals;
 
 import java.util.HashSet;
 import java.util.Set;
 
-import static org.junit.Assert.assertEquals;
+import org.junit.Test;
+import org.neo4j.graphdb.GraphDatabaseService;
+import org.neo4j.graphdb.Label;
+import org.neo4j.graphdb.Node;
+import org.neo4j.helpers.collection.Iterators;
+import org.neo4j.kernel.impl.transaction.TransactionCounters;
+import org.neo4j.kernel.internal.GraphDatabaseAPI;
+
+import com.graphaware.test.data.CypherPopulator;
+import com.graphaware.test.data.DatabasePopulator;
+import com.graphaware.test.integration.EmbeddedDatabaseIntegrationTest;
+import com.graphaware.tx.executor.input.TransactionalInput;
+import com.graphaware.tx.executor.single.TransactionCallback;
 
 /**
  * Unit test for {@link TransactionalInput}.
@@ -57,83 +56,24 @@ public class TransactionalInputTest extends EmbeddedDatabaseIntegrationTest {
     }
 
     @Test
-    public void shouldReturnItemsInMultipleTransactions() {
+    public void shouldReturnItemsWithoutAddingTransactions() {
         TransactionCounters monitor = ((GraphDatabaseAPI) getDatabase()).getDependencyResolver().resolveDependency(TransactionCounters.class);
         long noTx = monitor.getNumberOfCommittedTransactions();
 
-        TransactionalInput<Node> input = new TransactionalInput<>(getDatabase(), 2, database -> Iterators.asResourceIterable(database.findNodes(Label.label("Person"))));
-
-        Set<Node> nodes = new HashSet<>();
-
-        for (Node node : input) {
-            nodes.add(node);
-        }
-
-        assertEquals(4, nodes.size());
-        assertEquals(noTx + 3, monitor.getNumberOfCommittedTransactions());
-
-    }
-
-    @Test
-    public void shouldReturnItemsInMultipleTransactions2() {
-        TransactionCounters monitor = ((GraphDatabaseAPI) getDatabase()).getDependencyResolver().resolveDependency(TransactionCounters.class);
-        long noTx = monitor.getNumberOfCommittedTransactions();
-
-        TransactionalInput<Node> input = new TransactionalInput<>(getDatabase(), 1, new TransactionCallback<Iterable<Node>>() {
+        TransactionalInput<Node> input = new TransactionalInput<>(getDatabase(), new TransactionCallback<Iterable<Node>>() {
             @Override
             public Iterable<Node> doInTransaction(GraphDatabaseService database) throws Exception {
                 return Iterators.asResourceIterable(database.findNodes(Label.label("Person")));
             }
         });
 
+        assertEquals(noTx, monitor.getNumberOfCommittedTransactions());
+        
         Set<Node> nodes = new HashSet<>();
 
         for (Node node : input) {
             nodes.add(node);
-        }
-
-        assertEquals(4, nodes.size());
-        assertEquals(noTx + 5, monitor.getNumberOfCommittedTransactions());
-    }
-
-    @Test
-    public void shouldReturnItemsInMultipleTransactions3() {
-        TransactionCounters monitor = ((GraphDatabaseAPI) getDatabase()).getDependencyResolver().resolveDependency(TransactionCounters.class);
-        long noTx = monitor.getNumberOfCommittedTransactions();
-
-        TransactionalInput<Node> input = new TransactionalInput<>(getDatabase(), 3, new TransactionCallback<Iterable<Node>>() {
-            @Override
-            public Iterable<Node> doInTransaction(GraphDatabaseService database) throws Exception {
-                return Iterators.asResourceIterable(database.findNodes(Label.label("Person")));
-            }
-        });
-
-        Set<Node> nodes = new HashSet<>();
-
-        for (Node node : input) {
-            nodes.add(node);
-        }
-
-        assertEquals(4, nodes.size());
-        assertEquals(noTx + 2, monitor.getNumberOfCommittedTransactions());
-    }
-
-    @Test
-    public void shouldReturnItemsInMultipleTransactions4() {
-        TransactionCounters monitor = ((GraphDatabaseAPI) getDatabase()).getDependencyResolver().resolveDependency(TransactionCounters.class);
-        long noTx = monitor.getNumberOfCommittedTransactions();
-
-        TransactionalInput<Node> input = new TransactionalInput<>(getDatabase(), 100, new TransactionCallback<Iterable<Node>>() {
-            @Override
-            public Iterable<Node> doInTransaction(GraphDatabaseService database) throws Exception {
-                return Iterators.asResourceIterable(database.findNodes(Label.label("Person")));
-            }
-        });
-
-        Set<Node> nodes = new HashSet<>();
-
-        for (Node node : input) {
-            nodes.add(node);
+            assertEquals(noTx + 1, monitor.getNumberOfCommittedTransactions());
         }
 
         assertEquals(4, nodes.size());

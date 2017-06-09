@@ -16,16 +16,17 @@
 
 package com.graphaware.tx.executor.input;
 
-import com.graphaware.tx.executor.batch.BatchTransactionExecutor;
-import com.graphaware.tx.executor.single.TransactionCallback;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Objects;
+
 import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Transaction;
 import org.neo4j.helpers.collection.PrefetchingIterator;
-import org.neo4j.logging.Log;
-import com.graphaware.common.log.LoggerFactory;
 
-import java.util.Iterator;
-import java.util.Objects;
+import com.graphaware.tx.executor.batch.BatchTransactionExecutor;
+import com.graphaware.tx.executor.single.TransactionCallback;
 
 /**
  * An {@link Iterable}, items of which are retrieved from the database in batches. Intended to be used as
@@ -34,88 +35,67 @@ import java.util.Objects;
  * @param <T> type of fetched input.
  */
 public class TransactionalInput<T> extends PrefetchingIterator<T> implements Iterable<T>, Iterator<T> {
-    private static final Log LOG = LoggerFactory.getLogger(TransactionalInput.class);
 
     private final GraphDatabaseService database;
     private final TransactionCallback<Iterable<T>> callback;
     private Iterator<T> iterator;
-    private volatile int count = 0;
-    private volatile Transaction tx;
-    private final int batchSize;
+    private List<T> queryResultDump;
 
     /**
      * Construct a new input.
      *
      * @param database  from which to fetch input, must not be <code>null</code>.
-     * @param batchSize size of batches in which input if fetched. Must be positive.
+     * @param batchSize size of batches in which input if fetched. Must be positive. (Deprecated)
      * @param callback  which actually retrieves an iterable from the database.
      */
+    @Deprecated
     public TransactionalInput(GraphDatabaseService database, int batchSize, TransactionCallback<Iterable<T>> callback) {
+    	// deprecated because from neo4j 3.2 the open/close transaction mechanism doesn't work
+    	// now all the data are dumped in memory in order to take the transaction short
+    	this(database, callback);
+    }
+
+    /**
+     * Execute the callback in transaction scope
+     * @param database
+     * @param callback
+     */
+    public TransactionalInput(GraphDatabaseService database, TransactionCallback<Iterable<T>> callback) {
         Objects.requireNonNull(database);
-        if (batchSize <= 0) {
-            throw new IllegalArgumentException("batchSize argument must be greater than zero");
-        }
         Objects.requireNonNull(callback);
 
         this.database = database;
         this.callback = callback;
-        this.batchSize = batchSize;
     }
 
+    
     /**
      * {@inheritDoc}
      */
     @Override
     protected synchronized T fetchNextOrNull() {
-        beginTxIfNeeded();
-        createIteratorIfNeeded();
+    	
+    	if(this.iterator == null){
+    		this.iterator = fetchAll();
+    	}
 
-        T next = null;
-        if (iterator.hasNext()) {
-            next = iterator.next();
-        }
-
-        if (next == null) {
-            closeTx();
-            return null;
-        }
-
-        int i = ++count % batchSize;
-        if (i == 0) {
-            closeTx();
-        }
-
-        return next;
+        return iterator.hasNext()? iterator.next(): null;
     }
 
-    private void createIteratorIfNeeded() {
-        if (iterator == null) {
-            try {
-                iterator = callback.doInTransaction(database).iterator();
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        }
-    }
+	private Iterator<T> fetchAll() {
+		try (Transaction tx = database.beginTx()){
+			Iterator<T> it = callback.doInTransaction(database).iterator();
+			queryResultDump = new ArrayList<>();
+			while (it.hasNext()) {
+				queryResultDump.add(it.next());
+			}
+			tx.success();
+			return queryResultDump.iterator();
+		} catch (Exception e) {
+			throw new RuntimeException(e);
+		}
+	}
 
-    private void beginTxIfNeeded() {
-        if (tx == null) {
-            tx = database.beginTx();
-        }
-    }
-
-    private void closeTx() {
-        if (tx == null) {
-            return;
-        }
-
-        try {
-            tx.success();
-        } finally {
-            tx.close();
-            tx = null;
-        }
-    }
 
     /**
      * {@inheritDoc}
